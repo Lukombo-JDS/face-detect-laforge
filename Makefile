@@ -6,6 +6,8 @@ clr-all-img:
 init:
 	mkdir data/images
 	mkdir data/images/faces
+	
+	wget 
 
 run:
 	streamlit run main.py

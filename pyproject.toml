@@ -5,9 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "dotenv>=0.9.9",
+    "fiftyone>=1.13.5",
     "getenv>=0.2.0",
+    "numpy>=2.4.4",
     "opencv-python>=4.13.0.92",
     "pymilvus>=2.6.11",
     "python-dotenv>=1.2.2",
+    "scikit-learn>=1.8.0",
     "streamlit>=1.55.0",
+    "torchvision>=0.26.0",
 ]

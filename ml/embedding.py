@@ -1,5 +1,7 @@
 import numpy as np
 
+#TODO: Implementer le model d'embedding pour Image
+
 def embed_images(img):
 
     app = #TODO: mettre le model d'embedding d'image

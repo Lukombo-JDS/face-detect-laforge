@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 import streamlit as st
 
+# TODO: Ajouter un component de matching
+
 
 def load_image_from_bytes(image_bytes):
     print("type:", type(image_bytes))

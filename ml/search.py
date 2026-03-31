@@ -1,3 +1,6 @@
+# TODO: Faire la recherche vectoriel
+
+
 def search_embedding(query_embedding, collection):
     results = collection.search(
         data=[query_embedding.tolist()],

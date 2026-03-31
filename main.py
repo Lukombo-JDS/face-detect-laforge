@@ -1,6 +1,6 @@
 import dotenv
 
-from interface import image_uploded
+from view.upload import image_uploded
 
 
 def main():

@@ -6,20 +6,24 @@ import streamlit as st
 
 
 def load_image_from_bytes(image_bytes):
+    print("type:", type(image_bytes))
+    print("len:", len(image_bytes) if image_bytes is not None else None)
+    print("header:", image_bytes[:12] if image_bytes else None)
 
-    # Convertir bytes → array uint8
-    nparr = np.frombuffer(image_bytes, np.uint8)
+    nparr = np.frombuffer(image_bytes, dtype=np.uint8)
+    print("nparr shape:", nparr.shape)
+    print("nparr head:", nparr[:12])
 
-    # Décoder en image OpenCV
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("❌ OpenCV n'arrive pas à décoder l'image")
 
-    # if img is None:
-    #     raise ValueError(f"❌ Impossible de charger l'image : {path}")
     return img
 
 
 def detect(img):
     # Conversion en gris (plus rapide et efficace)
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Chargement du modèle
@@ -65,42 +69,33 @@ def extract_faces(img, faces):
     }
 
 
-def save_bytes_as_jpeg(face_images: list, output_dir: str):
+def save_bytes_as_jpeg(face_images, output_dir: str):
 
     os.makedirs(output_dir, exist_ok=True)
+    # f_img = face_images["faces"]
+    for i, (face, _) in enumerate(face_images["faces"]):
+        if i == 5:
+            break
+        filename = f"{output_dir}/faces/faces_{i}.jpg"
 
-    if len(face_images) != 0:
-        for i, (face, _) in enumerate(face_images):
-            if i == 5:
-                break
-            filename = f"{output_dir}/faces/faces_{i}.jpg"
-
-            cv2.imwrite(filename, face, [cv2.IMWRITE_JPEG_QUALITY, 95])
-
-
-# def draw_faces(img, faces):
-#     for x, y, w, h in faces:
-#         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-#     return img
-
-# if __name__ == "__main__":
-#     if len(sys.argv) < 2:
-#         print("Usage: python script.py image.jpg")
-#         sys.exit(1)
-
-#     main(sys.argv[1])
+        cv2.imwrite(filename, face, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
 
 def detect_faces(image_uploaded, output_img_dir: str):
     img = load_image_from_bytes(image_uploaded)
+    print("img loaded: ", img)
+    results = {}
+
     faces_detected = detect(img)
-    results: dict = extract_faces(img, faces_detected)
-    save_bytes_as_jpeg(results["faces"], output_img_dir)
+
+    results = extract_faces(img, faces_detected)
+    save_bytes_as_jpeg(results, output_img_dir)
 
     filename = f"{output_img_dir}/img.jpg"
 
     cv2.imwrite(filename, results["image"], [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+    return {"results": results["faces"], "img": results["image"]}
 
 
 def path_to_images(images_dir, images: list) -> list[str]:

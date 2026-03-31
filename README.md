@@ -40,7 +40,21 @@ Le projet utilise des outils modernes pour garantir la performance et l'isolatio
 
 ---
 
-## 🚀 Installation et Lancement
+## Installation et Lancement Rapide
+
+### 1. Récupération du package
+Récupérer l'image de la dernière version de l'app: 
+**[App Image](https://github.com/Lukombo-JDS/face-detect-laforge/pkgs/container/face-detect-laforge)**
+
+### 2. Lancer le container
+Lancer le container 
+```bash
+make app-up
+```
+
+L'app se lance à cette adresse en local [APP adresse](http://localhost:8501)
+
+##  Installation et Lancement Manuel
 
 ### 1. Initialisation locale (Développement)
 Pour préparer ton environnement de travail sans Docker :

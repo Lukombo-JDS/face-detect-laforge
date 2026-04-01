@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connections, utility
+
+from app.config import SETTINGS
+from app.logging import get_logger
+
+LOGGER = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class SearchResult:
+    person_name: str
+    distance: float
+    is_unknown: bool
+
+
+class MilvusFaceStore:
+    def __init__(self, collection_name: str = SETTINGS.milvus_collection) -> None:
+        self.collection_name = collection_name
+        self._connected = False
+        self._collection: Collection | None = None
+
+    def connect(self) -> None:
+        if self._connected:
+            return
+        connections.connect(host=SETTINGS.milvus_host, port=SETTINGS.milvus_port)
+        self._connected = True
+        self._collection = self._ensure_collection()
+
+    def _ensure_collection(self) -> Collection:
+        if utility.has_collection(self.collection_name):
+            return Collection(self.collection_name)
+
+        fields = [
+            FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
+            FieldSchema(name="person_name", dtype=DataType.VARCHAR, max_length=255),
+            FieldSchema(name="is_unknown", dtype=DataType.BOOL),
+            FieldSchema(name="source_image", dtype=DataType.VARCHAR, max_length=255),
+            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=SETTINGS.embedding_dim),
+        ]
+        schema = CollectionSchema(fields=fields, description="Face embeddings")
+        collection = Collection(name=self.collection_name, schema=schema)
+        self.ensure_index(collection)
+        return collection
+
+    def ensure_index(self, collection: Collection | None = None) -> None:
+        target = collection or self.collection
+        if target.indexes:
+            return
+        target.create_index(
+            field_name="embedding",
+            index_params={
+                "metric_type": "L2",
+                "index_type": "IVF_FLAT",
+                "params": {"nlist": 128},
+            },
+        )
+        target.load()
+        LOGGER.info("milvus_index_ready collection=%s", target.name)
+
+    @property
+    def collection(self) -> Collection:
+        if self._collection is None:
+            raise RuntimeError("Milvus non initialisé. Appelez connect() avant usage")
+        return self._collection
+
+    def add_face(self, person_name: str, embedding: np.ndarray, source_image: str) -> None:
+        normalized_name = person_name.strip() or SETTINGS.unknown_label
+        is_unknown = normalized_name == SETTINGS.unknown_label
+        self.collection.insert(
+            [
+                [normalized_name],
+                [is_unknown],
+                [source_image],
+                [embedding.astype(np.float32).tolist()],
+            ]
+        )
+
+    def search(self, query: np.ndarray, limit: int = 3) -> list[SearchResult]:
+        self.collection.load()
+        results = self.collection.search(
+            data=[query.astype(np.float32).tolist()],
+            anns_field="embedding",
+            param={"metric_type": "L2", "params": {"nprobe": 10}},
+            limit=limit,
+            output_fields=["person_name", "is_unknown"],
+        )
+        parsed: list[SearchResult] = []
+        for hit in results[0]:
+            parsed.append(
+                SearchResult(
+                    person_name=hit.entity.get("person_name"),
+                    distance=float(hit.distance),
+                    is_unknown=bool(hit.entity.get("is_unknown")),
+                )
+            )
+        return parsed

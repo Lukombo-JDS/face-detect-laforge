@@ -105,7 +105,7 @@ deploy-from-registry: ## Lance le projet en utilisant l'image du registre
 
 app-up: ## Lance Docker Compose (build + detach)
 	@echo "--- Lancement de Docker Compose ---"
-	$(DOCKER_COMPOSE) -f $(COMPOSE_APP) up -d --build
+	IMAGE_NAME=$(IMAGE_TAG) $(DOCKER_COMPOSE) -f $(COMPOSE_APP) up -d --build
 
 app-down: ## Arrête et supprime les conteneurs Docker
 	$(DOCKER_COMPOSE) -f $(COMPOSE_APP) down

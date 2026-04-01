@@ -10,12 +10,16 @@ HAARCASCADE_FILE = $(DATA_DIR)/haarcascade_frontalface_default.xml
 ENV_FILE = .env
 GITHUB_USER = lukombo-jds
 REPO_NAME = face-detect-laforge
-IMAGE_TAG = ghcr.io/$(GITHUB_USER)/$(REPO_NAME):latest
+VERSION_BASE ?= v.0.0.1
+IMAGE_ID ?= unstable-$(shell date +%Y%m%d%H%M%S)
+IMAGE_VERSION ?= $(VERSION_BASE)-$(IMAGE_ID)
+IMAGE_TAG = ghcr.io/$(GITHUB_USER)/$(REPO_NAME):$(IMAGE_VERSION)
+IMAGE_TAG_LATEST = ghcr.io/$(GITHUB_USER)/$(REPO_NAME):latest
 DOCKER_COMPOSE = docker compose
 COMPOSE_APP = docker-compose.yml
 COMPOSE_DB = db/docker-compose.yml
 
-.PHONY: all venv download docker-up docker-down init env clr-all-img run-debug help check-docker docker-build docker-smoke build-and-push release-image
+.PHONY: all venv download docker-up docker-down init env clr-all-img run-debug help check-docker docker-build docker-smoke build-and-push release-image release-unstable release-stable show-image-tag
 
 all: init env venv download ## Configuration complète (dossiers + env + venv + download)
 
@@ -74,6 +78,7 @@ check-docker: ## Vérifie que Docker CLI est disponible
 	}
 
 docker-build: check-docker ## Build l'image locale avec le tag du registre
+	@echo "Build image tag: $(IMAGE_TAG)"
 	docker build -t $(IMAGE_TAG) -f Dockerfile .
 
 docker-smoke: check-docker ## Démarre le container et vérifie que Streamlit répond sur /_stcore/health
@@ -102,6 +107,17 @@ build-and-push: docker-build docker-smoke ## Build, smoke test puis push sur Git
 
 release-image: docker-build docker-smoke ## Alias: build + smoke + push
 	docker push $(IMAGE_TAG)
+
+release-unstable: docker-build docker-smoke ## Build + smoke + push avec tag versionné (instable)
+	docker push $(IMAGE_TAG)
+
+release-stable: docker-build docker-smoke ## Build + smoke + push versionné + latest (stable)
+	docker tag $(IMAGE_TAG) $(IMAGE_TAG_LATEST)
+	docker push $(IMAGE_TAG)
+	docker push $(IMAGE_TAG_LATEST)
+
+show-image-tag: ## Affiche le tag d'image calculé
+	@echo "$(IMAGE_TAG)"
 
 deploy-from-registry: ## Lance le projet en utilisant l'image du registre
 	IMAGE_NAME=$(IMAGE_TAG) $(DOCKER_COMPOSE) up -d

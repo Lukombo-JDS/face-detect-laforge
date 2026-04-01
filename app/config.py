@@ -10,6 +10,8 @@ class Settings:
     milvus_host: str = os.getenv("MILVUS_HOST", "localhost")
     milvus_port: str = os.getenv("MILVUS_PORT", "19530")
     milvus_collection: str = os.getenv("MILVUS_COLLECTION", "face_embeddings")
+    milvus_collection_unknown: str = os.getenv("MILVUS_COLLECTION_UNKNOWN", "unknown")
+    milvus_collection_tagged: str = os.getenv("MILVUS_COLLECTION_TAGGED", "tagged")
     embedding_dim: int = int(os.getenv("EMBEDDING_DIM", "2048"))
     unknown_label: str = os.getenv("UNKNOWN_LABEL", "__unknown__")
     rebuild_threshold: int = int(os.getenv("REBUILD_THRESHOLD", "20"))

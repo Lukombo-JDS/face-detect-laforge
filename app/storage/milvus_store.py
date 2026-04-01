@@ -27,16 +27,23 @@ def build_search_params(ef: int = DEFAULT_SEARCH_EF, metric_type: str = MILVUS_M
 @dataclass(frozen=True)
 class SearchResult:
     person_name: str
+    annotation: str
     distance: float
     is_unknown: bool
     similarity_percent: float
 
 
 class MilvusFaceStore:
-    def __init__(self, collection_name: str = SETTINGS.milvus_collection) -> None:
-        self.collection_name = collection_name
+    def __init__(
+        self,
+        collection_name_tagged: str = SETTINGS.milvus_collection_tagged,
+        collection_name_unknown: str = SETTINGS.milvus_collection_unknown,
+    ) -> None:
+        self.collection_name_tagged = collection_name_tagged
+        self.collection_name_unknown = collection_name_unknown
         self._connected = False
-        self._collection: Collection | None = None
+        self._tagged_collection: Collection | None = None
+        self._unknown_collection: Collection | None = None
 
     def connect(self) -> None:
         if self._connected:
@@ -47,26 +54,28 @@ class MilvusFaceStore:
             timeout=1,
         )
         self._connected = True
-        self._collection = self._ensure_collection()
+        self._tagged_collection = self._ensure_collection(self.collection_name_tagged)
+        self._unknown_collection = self._ensure_collection(self.collection_name_unknown)
 
-    def _ensure_collection(self) -> Collection:
-        if utility.has_collection(self.collection_name):
-            return Collection(self.collection_name)
+    def _ensure_collection(self, collection_name: str) -> Collection:
+        if utility.has_collection(collection_name):
+            return Collection(collection_name)
 
         fields = [
             FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
             FieldSchema(name="person_name", dtype=DataType.VARCHAR, max_length=255),
+            FieldSchema(name="annotation", dtype=DataType.VARCHAR, max_length=255),
             FieldSchema(name="is_unknown", dtype=DataType.BOOL),
             FieldSchema(name="source_image", dtype=DataType.VARCHAR, max_length=255),
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=SETTINGS.embedding_dim),
         ]
         schema = CollectionSchema(fields=fields, description="Face embeddings")
-        collection = Collection(name=self.collection_name, schema=schema)
+        collection = Collection(name=collection_name, schema=schema)
         self.ensure_index(collection)
         return collection
 
     def ensure_index(self, collection: Collection | None = None) -> None:
-        target = collection or self.collection
+        target = collection or self.tagged_collection
         if target.indexes:
             return
         target.create_index(
@@ -76,17 +85,25 @@ class MilvusFaceStore:
         LOGGER.info("milvus_index_ready collection=%s", target.name)
 
     @property
-    def collection(self) -> Collection:
-        if self._collection is None:
+    def tagged_collection(self) -> Collection:
+        if self._tagged_collection is None:
             raise RuntimeError("Milvus non initialisé. Appelez connect() avant usage")
-        return self._collection
+        return self._tagged_collection
+
+    @property
+    def unknown_collection(self) -> Collection:
+        if self._unknown_collection is None:
+            raise RuntimeError("Milvus non initialisé. Appelez connect() avant usage")
+        return self._unknown_collection
 
     def add_face(self, person_name: str, embedding: np.ndarray, source_image: str) -> None:
         normalized_name = person_name.strip() or SETTINGS.unknown_label
         is_unknown = normalized_name == SETTINGS.unknown_label
         normalized_embedding = self._normalize_embedding(embedding)
-        self.collection.insert(
+        target_collection = self.unknown_collection if is_unknown else self.tagged_collection
+        target_collection.insert(
             [
+                [normalized_name],
                 [normalized_name],
                 [is_unknown],
                 [source_image],
@@ -95,30 +112,32 @@ class MilvusFaceStore:
         )
 
     def search(self, query: np.ndarray, limit: int = 3, ef: int = DEFAULT_SEARCH_EF) -> list[SearchResult]:
-        self.ensure_index()
-        if not self.collection.indexes:
+        self.ensure_index(self.tagged_collection)
+        if not self.tagged_collection.indexes:
             raise RuntimeError("Aucun index Milvus disponible: impossible de charger la collection")
-        self.collection.load()
+        self.tagged_collection.load()
         normalized_query = self._normalize_embedding(query)
-        metric_type = self._resolve_metric_type(self.collection)
-        results = self.collection.search(
+        metric_type = self._resolve_metric_type(self.tagged_collection)
+        results = self.tagged_collection.search(
             data=[normalized_query.astype(np.float32).tolist()],
             anns_field="embedding",
             param=build_search_params(ef=ef, metric_type=metric_type),
             limit=limit,
-            output_fields=["person_name", "is_unknown"],
+            output_fields=["person_name", "annotation", "is_unknown"],
         )
         parsed: list[SearchResult] = []
         for hit in results[0]:
             parsed.append(
                 SearchResult(
                     person_name=hit.entity.get("person_name"),
+                    annotation=hit.entity.get("annotation"),
                     distance=float(hit.distance),
                     is_unknown=bool(hit.entity.get("is_unknown")),
-                    similarity_percent=self._score_to_percent(float(hit.distance)),
+                    similarity_percent=self._score_to_percent(float(hit.distance), metric_type),
                 )
             )
-        return parsed
+        parsed.sort(key=lambda item: item.similarity_percent, reverse=True)
+        return parsed[:3]
 
     @staticmethod
     def _normalize_embedding(vector: np.ndarray) -> np.ndarray:
@@ -158,5 +177,9 @@ class MilvusFaceStore:
         return MILVUS_METRIC_TYPE
 
     @staticmethod
-    def _score_to_percent(score: float) -> float:
-        return max(0.0, min(score, 1.0)) * 100.0
+    def _score_to_percent(score: float, metric_type: str) -> float:
+        metric = metric_type.upper()
+        if metric == "L2":
+            return max(0.0, min(100.0, (1.0 / (1.0 + max(0.0, score))) * 100.0))
+        bounded = max(-1.0, min(score, 1.0))
+        return ((bounded + 1.0) / 2.0) * 100.0

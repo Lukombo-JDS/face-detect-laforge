@@ -15,6 +15,7 @@ RUN sh /uv-installer.sh && rm /uv-installer.sh
 ENV PATH="/root/.local/bin/:$PATH"
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # 3. Cache des dépendances : on ne copie QUE ces deux fichiers d'abord
 COPY pyproject.toml uv.lock ./

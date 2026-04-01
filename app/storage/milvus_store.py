@@ -19,9 +19,9 @@ MILVUS_HNSW_INDEX_PARAMS = {
 DEFAULT_SEARCH_EF = 128
 
 
-def build_search_params(ef: int = DEFAULT_SEARCH_EF) -> dict[str, object]:
+def build_search_params(ef: int = DEFAULT_SEARCH_EF, metric_type: str = MILVUS_METRIC_TYPE) -> dict[str, object]:
     """Centralise les paramètres de recherche Milvus pour ajuster facilement le recall/latence."""
-    return {"metric_type": MILVUS_METRIC_TYPE, "params": {"ef": ef}}
+    return {"metric_type": metric_type, "params": {"ef": ef}}
 
 
 @dataclass(frozen=True)
@@ -100,10 +100,11 @@ class MilvusFaceStore:
             raise RuntimeError("Aucun index Milvus disponible: impossible de charger la collection")
         self.collection.load()
         normalized_query = self._normalize_embedding(query)
+        metric_type = self._resolve_metric_type(self.collection)
         results = self.collection.search(
             data=[normalized_query.astype(np.float32).tolist()],
             anns_field="embedding",
-            param=build_search_params(ef=ef),
+            param=build_search_params(ef=ef, metric_type=metric_type),
             limit=limit,
             output_fields=["person_name", "is_unknown"],
         )
@@ -126,6 +127,35 @@ class MilvusFaceStore:
         if norm == 0.0:
             return casted
         return casted / norm
+
+    @staticmethod
+    def _resolve_metric_type(collection: Collection) -> str:
+        """Garde la compatibilité avec les collections existantes (L2) au lieu de casser la recherche."""
+        if not collection.indexes:
+            return MILVUS_METRIC_TYPE
+
+        first_index = collection.indexes[0]
+        index_params = None
+        if hasattr(first_index, "to_dict"):
+            try:
+                index_info = first_index.to_dict()
+            except Exception:  # pragma: no cover - dépend du client Milvus utilisé
+                index_info = {}
+            index_params = index_info.get("index_param", index_info)
+        elif hasattr(first_index, "params"):
+            index_params = getattr(first_index, "params")
+
+        if isinstance(index_params, dict):
+            metric_type = index_params.get("metric_type")
+            if isinstance(metric_type, str) and metric_type:
+                if metric_type != MILVUS_METRIC_TYPE:
+                    LOGGER.warning(
+                        "milvus_metric_compatibility collection=%s metric=%s",
+                        collection.name,
+                        metric_type,
+                    )
+                return metric_type
+        return MILVUS_METRIC_TYPE
 
     @staticmethod
     def _score_to_percent(score: float) -> float:

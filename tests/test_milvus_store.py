@@ -14,6 +14,10 @@ def test_build_search_params_defaults_to_ef_128() -> None:
     assert build_search_params() == {"metric_type": "IP", "params": {"ef": DEFAULT_SEARCH_EF}}
 
 
+def test_build_search_params_accepts_override_metric() -> None:
+    assert build_search_params(metric_type="L2") == {"metric_type": "L2", "params": {"ef": DEFAULT_SEARCH_EF}}
+
+
 def test_ensure_index_creates_hnsw_index_when_missing() -> None:
     store = MilvusFaceStore(collection_name="test_collection")
     collection = MagicMock()
@@ -48,3 +52,25 @@ def test_search_ensures_index_then_loads_and_uses_ef() -> None:
     call_kwargs = collection.search.call_args.kwargs
     assert call_kwargs["param"] == {"metric_type": "IP", "params": {"ef": 256}}
     assert results[0].person_name == "alice"
+
+
+def test_search_uses_existing_collection_metric_type() -> None:
+    store = MilvusFaceStore(collection_name="test_collection")
+    collection = MagicMock()
+    index = MagicMock()
+    index.to_dict.return_value = {"index_param": {"metric_type": "L2"}}
+    collection.indexes = [index]
+    collection.name = "test_collection"
+
+    hit = MagicMock()
+    hit.entity.get.side_effect = lambda key: {"person_name": "bob", "is_unknown": False}[key]
+    hit.distance = 0.42
+    collection.search.return_value = [[hit]]
+
+    store._collection = collection
+    store._connected = True
+
+    store.search(np.array([1.0, 2.0, 3.0], dtype=np.float32), limit=2, ef=64)
+
+    call_kwargs = collection.search.call_args.kwargs
+    assert call_kwargs["param"] == {"metric_type": "L2", "params": {"ef": 64}}

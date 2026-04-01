@@ -1,126 +1,77 @@
-# 👤 Face Detect Tool
+# Face Detect Laforge
 
-## 📝 Description
-Ce projet est un outil de reconnaissance faciale capable de traiter des fichiers images (potentiellement issus d'un `.zip`), d'extraire les visages via **OpenCV**, de générer des embeddings et de les stocker dans **Milvus** (base de données vectorielle) pour identification. L'interface utilisateur est propulsée par **Streamlit**.
+Application Streamlit d’annotation et de recherche de visages avec stockage vectoriel Milvus.
 
----
-
-## 📂 Arborescence du Projet
-Voici la structure principale pour t'aider à naviguer :
+## Structure modulaire
 
 ```text
-.
-├── data/                   # Données de l'application
-│   ├── images/             # Images sources et extractions
-│   │   └── faces/          # Visages détectés et recadrés
-│   └── face_model.xml      # Modèle Haar Cascade (généré par make)
-├── db/                     # Configuration de la base de données
-│   └── docker-compose.yml  # Stack Milvus Standalone
-├── ml/                     # Logique Machine Learning
-│   ├── model/              # Modèles de reconnaissance (facenet, etc.)
-│   ├── embedding.py        # Génération des vecteurs
-│   └── search.py           # Logique de recherche vectorielle
-├── view/                   # Interface Utilisateur
-│   ├── display.py          # Point d'entrée Streamlit
-│   └── interface.py        # Composants UI
-├── docker-compose.yml      # Stack de l'application principale
-├── Dockerfile              # Containerisation de l'App (Python + OpenCV)
-├── Makefile                # Automatisation des tâches (Indispensable)
-├── pyproject.toml          # Gestion des dépendances avec UV
-└── .env                    # Variables d'environnement (généré par make)
+app/
+  vision/        # Détection et extraction des visages (OpenCV)
+  ml/            # Génération d'embeddings (ResNet)
+  storage/       # Accès Milvus (collection, insert, KNN, index)
+  services/      # Orchestration métier (pipeline upload → embeddings → suggestions)
+  workers/       # Exécution asynchrone locale (queue + thread)
+  ui/            # Interface Streamlit
+scripts/
+  rebuild_index.py  # Rebuild batch des embeddings/index
+view/
+  display.py     # Point d’entrée Streamlit (compat)
 ```
 
----
+## Lancer localement
 
-## 🛠 Prérequis
-Le projet utilise des outils modernes pour garantir la performance et l'isolation :
-* **[uv](https://github.com/astral-sh/uv)** : Pour la gestion ultra-rapide des dépendances Python.
-* **Docker & Docker Compose** : Pour l'exécution des services (App + Milvus).
-* **Make** : Pour piloter le projet simplement.
+1. Installer et préparer:
 
----
-
-## Installation et Lancement Rapide
-
-### 1. Récupération du package
-Récupérer l'image de la dernière version de l'app: 
-**[App Image](https://github.com/Lukombo-JDS/face-detect-laforge/pkgs/container/face-detect-laforge)**
-
-### 2. Lancer le container
-Lancer le container 
-```bash
-make app-up
-```
-
-L'app se lance à cette adresse en local [APP adresse](http://localhost:8501)
-
-##  Installation et Lancement Manuel
-
-### 1. Initialisation locale (Développement)
-Pour préparer ton environnement de travail sans Docker :
 ```bash
 make all
 ```
-*Cette commande : crée l'arborescence, génère le `.env`, synchronise les dépendances via `uv sync` et télécharge le modèle OpenCV.*
 
-### 2. Lancement des services
-Le projet est divisé en deux parties (App et DB) :
+2. Lancer Milvus:
 
-**Lancer la base de données (Milvus) :**
 ```bash
 make db-up
 ```
 
-**Lancer l'application en mode Debug (Streamlit local) :**
+3. Lancer Streamlit:
+
 ```bash
 make run-debug
 ```
 
----
+## Fonctionnement
 
-## 🐳 Docker & Déploiement
+### Vectorisation
 
-### Utilisation via le Registre (GHCR)
-Si tu souhaites récupérer l'image déjà buildée par l'équipe :
+- Upload d’image dans l’UI.
+- Un worker local en arrière-plan traite l’image:
+  1) détection des visages,
+  2) génération des embeddings ResNet,
+  3) recherche de suggestions KNN dans Milvus.
+- À validation d’annotation, chaque embedding est inséré en base Milvus.
+- Si aucun label n’est saisi, le visage est stocké en `__unknown__`.
+
+### Recherche par similarité
+
+- Requête KNN via `Collection.search` Milvus.
+- Index IVF_FLAT + métrique L2.
+- Résultats retournés avec nom, distance et flag `is_unknown`.
+
+### Mise à jour de l’index
+
+- Mise à jour automatique après accumulation de `REBUILD_THRESHOLD` nouveaux visages.
+- Script batch manuel disponible:
+
 ```bash
-make deploy-from-registry
+uv run python scripts/rebuild_index.py --folder data/images/faces --label Alice
 ```
 
-### Build et Push (si tu fais des modifs)
-Pour mettre à jour l'image sur le GitHub Container Registry :
-1.  **Build & Push** : `make build-and-push`
-2.  **Nettoyage** : `make clr-all-img` (pour vider les données de test avant un build propre).
+### Traitement en arrière-plan
 
----
+- Implémenté par `BackgroundTaskRunner` (queue locale + thread daemon).
+- L’UI Streamlit ne bloque pas pendant détection/vectorisation.
 
-## 🛠 Commandes utiles (Makefile)
+## Tests ciblés
 
-| Commande | Description |
-| :--- | :--- |
-| `make help` | Affiche la liste de toutes les commandes disponibles. |
-| `make venv` | Synchronise l'environnement virtuel avec `pyproject.toml`. |
-| `make download` | Récupère les fichiers XML de détection OpenCV. |
-| `make clr-all-img` | Vide récursivement les dossiers `data/images/`. |
-| `make db-down` | Arrête proprement la stack Milvus. |
-
----
-
-## 🌐 Accès à l'Application
-Une fois le conteneur lancé (via Docker ou `make run-debug`), l'interface Streamlit est accessible à l'adresse suivante :
-
-👉 **URL :** [http://localhost:8501](http://localhost:8501)
-
----
-
-## 🔑 Accès à l'Image de "Release" (GitHub Packages)
-L'image officielle du projet est stockée sur le **GitHub Container Registry (GHCR)**. Pour l'utiliser, un accès en lecture est nécessaire.
-
----
-
-## 💡 Notes techniques
-* **OpenCV** : Le projet utilise `haarcascade_frontalface_default.xml` pour la détection. Il est stocké dans `./data/`.
-* **Variables d'environnement** : Le fichier `.env` définit `OUTPUT_IMAGES_DIR`. Assure-toi qu'il correspond à ton montage de volume Docker si tu modifies la structure.
-* **Optimisation Docker** : Un fichier `.dockerignore` est présent pour éviter d'embarquer la `.venv` locale ou les images de test dans l'image finale.
-
----
-*Dernière mise à jour : Mars 2026*
+```bash
+python -m unittest discover -s tests -v
+```

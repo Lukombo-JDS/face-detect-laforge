@@ -49,8 +49,15 @@ Cette commande démarre automatiquement `etcd`, `minio`, `standalone` (Milvus) p
 ### Recherche par similarité
 
 - Requête KNN via `Collection.search` Milvus.
-- Index IVF_FLAT + métrique L2.
+- Index IVF_FLAT + métrique COSINE.
 - Résultats retournés avec nom, distance et flag `is_unknown`.
+- L'UI affiche le score de similarité au format pourcentage.
+
+### Annotation
+
+- Pendant la première annotation, chaque visage détecté peut être exclu.
+- Les visages exclus ne sont ni sauvegardés dans Milvus, ni affichés dans la galerie/historique.
+- La galerie est affichée en grille pour faciliter la revue rapide.
 
 ### Mise à jour de l’index
 

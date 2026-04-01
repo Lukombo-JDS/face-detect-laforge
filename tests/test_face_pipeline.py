@@ -65,6 +65,24 @@ class FacePipelineTests(unittest.TestCase):
         store.add_face.assert_not_called()
         store.ensure_index.assert_not_called()
 
+    def test_save_annotations_ignores_deleted_faces(self):
+        store = Mock()
+        service = FacePipelineService(store=store, detector=Mock(), embedder=Mock())
+
+        processed = [
+            Mock(embedding=np.array([0.1, 0.2], dtype=np.float32)),
+            Mock(embedding=np.array([0.3, 0.4], dtype=np.float32)),
+        ]
+
+        service.save_annotations(
+            processed_faces=processed,
+            annotations={0: "Alice", 1: "Bob"},
+            source_image="upload.jpg",
+            deleted_indices={1},
+        )
+
+        store.add_face.assert_called_once_with("Alice", processed[0].embedding, source_image="upload.jpg")
+
 
 if __name__ == "__main__":
     unittest.main()

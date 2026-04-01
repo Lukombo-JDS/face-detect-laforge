@@ -17,6 +17,7 @@ def _init_state() -> None:
         "step": "upload",
         "processed_faces": [],
         "annotations": {},
+        "deleted_faces": set(),
         "original_image": None,
         "pipeline": FacePipelineService(),
         "runner": BackgroundTaskRunner(),
@@ -55,6 +56,7 @@ def _poll_processing_task() -> None:
     if task.status == "done":
         st.session_state.processed_faces = task.result
         st.session_state.step = "annotate"
+        st.session_state.deleted_faces = set()
         st.session_state.task_id = None
         st.rerun()
 
@@ -64,9 +66,12 @@ def _save_and_reset() -> None:
         st.session_state.processed_faces,
         st.session_state.annotations,
         source_image=f"upload_{int(time.time())}.jpg",
+        deleted_indices=st.session_state.deleted_faces,
     )
 
     for idx, label in st.session_state.annotations.items():
+        if idx in st.session_state.deleted_faces:
+            continue
         clean_label = label.strip() or SETTINGS.unknown_label
         st.session_state.history_faces.append(
             {
@@ -82,6 +87,7 @@ def _save_and_reset() -> None:
     st.session_state.step = "upload"
     st.session_state.processed_faces = []
     st.session_state.annotations = {}
+    st.session_state.deleted_faces = set()
     st.session_state.original_image = None
 
 
@@ -109,8 +115,15 @@ def _render_gallery_tab() -> None:
         for f in st.session_state.history_faces
         if search_query.lower() in f["name"].lower()
     ]
-    for item in faces:
-        st.image(item["image"], channels="BGR", width=120, caption=item["name"])
+    if not faces:
+        st.info("Aucun visage dans la galerie.")
+        return
+
+    columns = st.columns(4)
+    for idx, item in enumerate(faces):
+        with columns[idx % 4]:
+            st.image(item["image"], channels="BGR", use_container_width=True)
+            st.caption(item["name"])
 
 
 def _render_annotation_view() -> None:
@@ -122,14 +135,27 @@ def _render_annotation_view() -> None:
         st.image(processed.face_image, channels="BGR", width=180)
         if similarity_enabled:
             suggestions = ", ".join(
-                [f"{x.person_name} ({x.distance:.2f})" for x in processed.suggestions]
+                [
+                    f"{x.person_name} ({x.similarity_percent:.1f}%)"
+                    for x in processed.suggestions
+                ]
             )
             st.caption(f"Suggestions Milvus: {suggestions or 'aucune'}")
         else:
             st.caption("Suggestions Milvus: indisponibles (Milvus non connecté)")
+        should_delete = st.checkbox(
+            f"Supprimer ce visage de l'annotation (#{idx + 1})",
+            value=idx in st.session_state.deleted_faces,
+            key=f"delete_face_{idx}",
+        )
+        if should_delete:
+            st.session_state.deleted_faces.add(idx)
+        else:
+            st.session_state.deleted_faces.discard(idx)
         st.session_state.annotations[idx] = st.text_input(
             f"Label visage #{idx + 1}",
             value=st.session_state.annotations.get(idx, ""),
+            disabled=should_delete,
         )
 
     if st.button("Valider"):

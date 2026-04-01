@@ -16,6 +16,7 @@ class SearchResult:
     person_name: str
     distance: float
     is_unknown: bool
+    similarity_percent: float
 
 
 class MilvusFaceStore:
@@ -58,7 +59,7 @@ class MilvusFaceStore:
         target.create_index(
             field_name="embedding",
             index_params={
-                "metric_type": "L2",
+                "metric_type": "COSINE",
                 "index_type": "IVF_FLAT",
                 "params": {"nlist": 128},
             },
@@ -75,21 +76,23 @@ class MilvusFaceStore:
     def add_face(self, person_name: str, embedding: np.ndarray, source_image: str) -> None:
         normalized_name = person_name.strip() or SETTINGS.unknown_label
         is_unknown = normalized_name == SETTINGS.unknown_label
+        normalized_embedding = self._normalize_embedding(embedding)
         self.collection.insert(
             [
                 [normalized_name],
                 [is_unknown],
                 [source_image],
-                [embedding.astype(np.float32).tolist()],
+                [normalized_embedding.astype(np.float32).tolist()],
             ]
         )
 
     def search(self, query: np.ndarray, limit: int = 3) -> list[SearchResult]:
         self.collection.load()
+        normalized_query = self._normalize_embedding(query)
         results = self.collection.search(
-            data=[query.astype(np.float32).tolist()],
+            data=[normalized_query.astype(np.float32).tolist()],
             anns_field="embedding",
-            param={"metric_type": "L2", "params": {"nprobe": 10}},
+            param={"metric_type": "COSINE", "params": {"nprobe": 10}},
             limit=limit,
             output_fields=["person_name", "is_unknown"],
         )
@@ -100,6 +103,19 @@ class MilvusFaceStore:
                     person_name=hit.entity.get("person_name"),
                     distance=float(hit.distance),
                     is_unknown=bool(hit.entity.get("is_unknown")),
+                    similarity_percent=self._score_to_percent(float(hit.distance)),
                 )
             )
         return parsed
+
+    @staticmethod
+    def _normalize_embedding(vector: np.ndarray) -> np.ndarray:
+        casted = vector.astype(np.float32)
+        norm = float(np.linalg.norm(casted))
+        if norm == 0.0:
+            return casted
+        return casted / norm
+
+    @staticmethod
+    def _score_to_percent(score: float) -> float:
+        return max(0.0, min(score, 1.0)) * 100.0

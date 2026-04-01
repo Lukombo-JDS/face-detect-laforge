@@ -82,6 +82,7 @@ class FacePipelineService:
         processed_faces: list[ProcessedFace],
         annotations: dict[int, str],
         source_image: str,
+        deleted_indices: set[int] | None = None,
     ) -> None:
         if not self.ensure_milvus_connection():
             LOGGER.warning(
@@ -89,10 +90,15 @@ class FacePipelineService:
                 len(processed_faces),
             )
             return
+        deleted_indices = deleted_indices or set()
+        saved_faces = 0
         for idx, face in enumerate(processed_faces):
+            if idx in deleted_indices:
+                continue
             label = normalize_label(annotations.get(idx, ""))
             self.store.add_face(label, face.embedding, source_image=source_image)
-        self._new_faces_since_rebuild += len(processed_faces)
+            saved_faces += 1
+        self._new_faces_since_rebuild += saved_faces
         self._rebuild_index_if_needed()
 
     def _rebuild_index_if_needed(self) -> None:

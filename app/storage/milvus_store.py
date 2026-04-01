@@ -10,6 +10,19 @@ from app.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
+MILVUS_METRIC_TYPE = "IP"
+MILVUS_HNSW_INDEX_PARAMS = {
+    "metric_type": MILVUS_METRIC_TYPE,
+    "index_type": "HNSW",
+    "params": {"M": 32, "efConstruction": 200},
+}
+DEFAULT_SEARCH_EF = 128
+
+
+def build_search_params(ef: int = DEFAULT_SEARCH_EF) -> dict[str, object]:
+    """Centralise les paramètres de recherche Milvus pour ajuster facilement le recall/latence."""
+    return {"metric_type": MILVUS_METRIC_TYPE, "params": {"ef": ef}}
+
 
 @dataclass(frozen=True)
 class SearchResult:
@@ -58,13 +71,8 @@ class MilvusFaceStore:
             return
         target.create_index(
             field_name="embedding",
-            index_params={
-                "metric_type": "COSINE",
-                "index_type": "IVF_FLAT",
-                "params": {"nlist": 128},
-            },
+            index_params=MILVUS_HNSW_INDEX_PARAMS,
         )
-        target.load()
         LOGGER.info("milvus_index_ready collection=%s", target.name)
 
     @property
@@ -86,13 +94,16 @@ class MilvusFaceStore:
             ]
         )
 
-    def search(self, query: np.ndarray, limit: int = 3) -> list[SearchResult]:
+    def search(self, query: np.ndarray, limit: int = 3, ef: int = DEFAULT_SEARCH_EF) -> list[SearchResult]:
+        self.ensure_index()
+        if not self.collection.indexes:
+            raise RuntimeError("Aucun index Milvus disponible: impossible de charger la collection")
         self.collection.load()
         normalized_query = self._normalize_embedding(query)
         results = self.collection.search(
             data=[normalized_query.astype(np.float32).tolist()],
             anns_field="embedding",
-            param={"metric_type": "COSINE", "params": {"nprobe": 10}},
+            param=build_search_params(ef=ef),
             limit=limit,
             output_fields=["person_name", "is_unknown"],
         )

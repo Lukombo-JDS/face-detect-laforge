@@ -59,7 +59,7 @@ download: ## Télécharge le modèle Haar Cascade pour OpenCV
 
 ## --- DÉVELOPPEMENT & EXECUTION ---
 
-run-debug: ## Lance l'interface Streamlit en mode debug via uv
+run-debug: db-up ## Lance l'interface Streamlit en mode debug via uv
 	@echo "--- Lancement de Streamlit ---"
 	$(UV) run streamlit run view/display.py
 
@@ -119,8 +119,9 @@ release-stable: docker-build docker-smoke ## Build + smoke + push versionné + l
 show-image-tag: ## Affiche le tag d'image calculé
 	@echo "$(IMAGE_TAG)"
 
-deploy-from-registry: ## Lance le projet en utilisant l'image du registre
-	IMAGE_NAME=$(IMAGE_TAG) $(DOCKER_COMPOSE) up -d
+deploy-from-registry: check-docker ## Pull la dernière image stable du registre puis lance le projet
+	docker pull $(IMAGE_TAG_LATEST)
+	IMAGE_NAME=$(IMAGE_TAG_LATEST) $(DOCKER_COMPOSE) up -d
 
 app-up: ## Lance Docker Compose (build + detach)
 	@echo "--- Lancement de Docker Compose ---"

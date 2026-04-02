@@ -7,6 +7,7 @@ import numpy as np
 from app.config import SETTINGS
 from app.logging import get_logger
 from app.ml.embedder import FaceEmbedder
+from app.ml.online_face_learner import OnlineFaceLearner
 from app.services.annotation_logic import normalize_label, should_rebuild_index
 from app.storage.milvus_store import MilvusFaceStore, SearchResult
 from app.vision.face_detection import FaceDetector
@@ -35,6 +36,7 @@ class FacePipelineService:
         self._milvus_available = False
         self._milvus_error: str | None = None
         self._new_faces_since_rebuild = 0
+        self.learner = OnlineFaceLearner()
 
     @property
     def milvus_available(self) -> bool:
@@ -67,6 +69,7 @@ class FacePipelineService:
         for item in detected:
             embedding = self.embedder.embed_bgr_face(item.image)
             suggestions = self.store.search(embedding, limit=3) if similarity_enabled else []
+            suggestions = self._rerank_with_learner(embedding, suggestions)
             faces.append(
                 ProcessedFace(
                     face_image=item.image,
@@ -96,7 +99,16 @@ class FacePipelineService:
             if idx in deleted_indices:
                 continue
             label = normalize_label(annotations.get(idx, ""))
+            original_top = face.suggestions[0] if face.suggestions else None
+            if original_top and original_top.face_id is not None and original_top.annotation != label:
+                self.store.relabel_face(
+                    original_top.face_id,
+                    new_label=label,
+                    embedding=face.embedding,
+                    source_image=source_image,
+                )
             self.store.add_face(label, face.embedding, source_image=source_image)
+            self.learner.learn(face.embedding, label)
             saved_faces += 1
         self._new_faces_since_rebuild += saved_faces
         self._rebuild_index_if_needed()
@@ -107,3 +119,18 @@ class FacePipelineService:
         LOGGER.info("index_rebuild_triggered new_faces=%s", self._new_faces_since_rebuild)
         self.store.ensure_index()
         self._new_faces_since_rebuild = 0
+
+    def _rerank_with_learner(
+        self,
+        embedding: np.ndarray,
+        suggestions: list[SearchResult],
+    ) -> list[SearchResult]:
+        if not suggestions:
+            return suggestions
+        rescored: list[tuple[float, SearchResult]] = []
+        for item in suggestions:
+            learner_score = self.learner.score(embedding, item.annotation)
+            blended = item.similarity_percent if learner_score is None else ((item.similarity_percent + learner_score * 100.0) / 2.0)
+            rescored.append((blended, item))
+        rescored.sort(key=lambda pair: pair[0], reverse=True)
+        return [item for _, item in rescored[:3]]

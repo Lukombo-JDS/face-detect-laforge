@@ -9,6 +9,7 @@ from app.vision.face_detection import DetectedFace
 from app.config import SETTINGS
 from app.services.face_pipeline import FacePipelineService
 from app.services.annotation_logic import normalize_label, should_rebuild_index
+from app.storage.milvus_store import SearchResult
 
 
 class FacePipelineTests(unittest.TestCase):
@@ -82,6 +83,39 @@ class FacePipelineTests(unittest.TestCase):
         )
 
         store.add_face.assert_called_once_with("Alice", processed[0].embedding, source_image="upload.jpg")
+
+    def test_save_annotations_relabels_when_user_overrides_top_suggestion(self):
+        store = Mock()
+        service = FacePipelineService(store=store, detector=Mock(), embedder=Mock())
+        processed = [
+            Mock(
+                embedding=np.array([0.5, 0.1], dtype=np.float32),
+                suggestions=[
+                    SearchResult(
+                        face_id=42,
+                        person_name="Alice",
+                        annotation="Alice",
+                        distance=0.9,
+                        is_unknown=False,
+                        similarity_percent=95.0,
+                    )
+                ],
+            )
+        ]
+
+        service.save_annotations(
+            processed_faces=processed,
+            annotations={0: "Bob"},
+            source_image="upload.jpg",
+        )
+
+        store.relabel_face.assert_called_once_with(
+            42,
+            new_label="Bob",
+            embedding=processed[0].embedding,
+            source_image="upload.jpg",
+        )
+        store.add_face.assert_called_once_with("Bob", processed[0].embedding, source_image="upload.jpg")
 
 
 if __name__ == "__main__":

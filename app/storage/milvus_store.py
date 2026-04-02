@@ -26,6 +26,7 @@ def build_search_params(ef: int = DEFAULT_SEARCH_EF, metric_type: str = MILVUS_M
 
 @dataclass(frozen=True)
 class SearchResult:
+    face_id: int | None
     person_name: str
     annotation: str
     distance: float
@@ -129,6 +130,7 @@ class MilvusFaceStore:
         for hit in results[0]:
             parsed.append(
                 SearchResult(
+                    face_id=self._extract_hit_id(hit),
                     person_name=hit.entity.get("person_name"),
                     annotation=hit.entity.get("annotation"),
                     distance=float(hit.distance),
@@ -138,6 +140,26 @@ class MilvusFaceStore:
             )
         parsed.sort(key=lambda item: item.similarity_percent, reverse=True)
         return parsed[:3]
+
+    def relabel_face(
+        self,
+        face_id: int,
+        new_label: str,
+        embedding: np.ndarray,
+        source_image: str,
+    ) -> None:
+        """Corrige une annotation existante en remplaçant l'entrée Milvus."""
+        normalized_name = new_label.strip() or SETTINGS.unknown_label
+        self.tagged_collection.delete(expr=f"id in [{int(face_id)}]")
+        self.tagged_collection.insert(
+            [
+                [normalized_name],
+                [normalized_name],
+                [False],
+                [source_image],
+                [self._normalize_embedding(embedding).astype(np.float32).tolist()],
+            ]
+        )
 
     @staticmethod
     def _normalize_embedding(vector: np.ndarray) -> np.ndarray:
@@ -183,3 +205,15 @@ class MilvusFaceStore:
             return max(0.0, min(100.0, (1.0 / (1.0 + max(0.0, score))) * 100.0))
         bounded = max(-1.0, min(score, 1.0))
         return ((bounded + 1.0) / 2.0) * 100.0
+
+    @staticmethod
+    def _extract_hit_id(hit: object) -> int | None:
+        identifier = getattr(hit, "id", None)
+        if identifier is None and hasattr(hit, "entity"):
+            try:
+                identifier = hit.entity.get("id")
+            except Exception:  # pragma: no cover - dépend du SDK Milvus
+                identifier = None
+        if identifier is None:
+            return None
+        return int(identifier)

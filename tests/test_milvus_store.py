@@ -38,6 +38,7 @@ def test_search_ensures_index_then_loads_and_uses_ef() -> None:
     collection.indexes = [object()]
 
     hit = MagicMock()
+    hit.id = 7
     hit.entity.get.side_effect = lambda key: {
         "person_name": "alice",
         "annotation": "alice",
@@ -57,6 +58,7 @@ def test_search_ensures_index_then_loads_and_uses_ef() -> None:
     assert call_kwargs["param"] == {"metric_type": "IP", "params": {"ef": 256}}
     assert results[0].person_name == "alice"
     assert results[0].annotation == "alice"
+    assert results[0].face_id == 7
 
 
 def test_search_uses_existing_collection_metric_type() -> None:
@@ -68,6 +70,7 @@ def test_search_uses_existing_collection_metric_type() -> None:
     collection.name = "test_collection"
 
     hit = MagicMock()
+    hit.id = 8
     hit.entity.get.side_effect = lambda key: {
         "person_name": "bob",
         "annotation": "bob",

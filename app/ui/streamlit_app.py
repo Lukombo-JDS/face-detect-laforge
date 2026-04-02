@@ -133,6 +133,8 @@ def _render_annotation_view() -> None:
         st.info("Mode dégradé actif: suggestions Milvus et indexation désactivées.")
     for idx, processed in enumerate(st.session_state.processed_faces):
         st.image(processed.face_image, channels="BGR", width=180)
+        suggested_labels = [x.annotation for x in processed.suggestions]
+        default_label = suggested_labels[0] if suggested_labels else SETTINGS.unknown_label
         if similarity_enabled:
             suggestions = ", ".join(
                 [
@@ -152,11 +154,27 @@ def _render_annotation_view() -> None:
             st.session_state.deleted_faces.add(idx)
         else:
             st.session_state.deleted_faces.discard(idx)
-        st.session_state.annotations[idx] = st.text_input(
-            f"Label visage #{idx + 1}",
-            value=st.session_state.annotations.get(idx, ""),
+
+        manual_option = "✍️ Saisie manuelle"
+        select_options = suggested_labels + [manual_option]
+        saved_value = st.session_state.annotations.get(idx, default_label)
+        default_select = saved_value if saved_value in suggested_labels else manual_option
+        selected = st.selectbox(
+            f"Suggestion visage #{idx + 1}",
+            options=select_options,
+            index=select_options.index(default_select),
+            key=f"suggestion_face_{idx}",
             disabled=should_delete,
         )
+        if selected == manual_option:
+            st.session_state.annotations[idx] = st.text_input(
+                f"Label visage #{idx + 1}",
+                value=saved_value if saved_value not in suggested_labels else "",
+                key=f"custom_label_{idx}",
+                disabled=should_delete,
+            )
+        else:
+            st.session_state.annotations[idx] = selected
 
     if st.button("Valider"):
         _save_and_reset()
